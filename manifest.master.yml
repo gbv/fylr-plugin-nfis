@@ -1,0 +1,39 @@
+plugin:
+  name: nfis
+  version: 1.0
+  url: https://github.com/gbv/fylr-plugin-nfis
+  displayname:
+    de-DE: NFIS
+    en-US: NFIS
+  server:
+    api-version:
+      require: 1
+  l10n: l10n/nfis.csv
+
+base_config:
+  - name: create_findspots
+    parameters:
+      wfs_url:
+        type: text
+        position: 0
+
+callbacks:
+  db_pre_save:
+    steps:
+      - name: "Create findspots"
+        callback: createFindspots
+    callbacks:
+      createFindspots:
+        exec:
+          service: "node"
+          commands:
+            - prog: "node"
+              stdin:
+                type: body
+              stdout:
+                type: body
+              args:
+                - type: "value"
+                  value: "%_exec.pluginDir%/server/createFindspots.js"
+                - type: "value"
+                  value: "%info.json%"
