@@ -31,21 +31,95 @@ process.stdin.on('end', async () => {
 async function processObject(object) {
     if (object._objecttype !== 'item' || object._uuid) return false;
 
-    const arealUnitUUID = getArealUnitUUID(object);
-    if (!arealUnitUUID) return false;
+    const objectGeometries = await getObjectGeometries(object);
+    if (!objectGeometries?.length) throwErrorToFrontend('Bitte fügen Sie eine Geometrie hinzu, bevor Sie das Objekt speichern.');
 
-    const polygonData = await getArealUnitPolygonData(arealUnitUUID);
-    const districtConcepts = await getDistrictConcepts(polygonData);
+    const arealUnitConcepts = await getArealUnitConcepts(objectGeometries);
+    setArealUnitConcepts(object, arealUnitConcepts);
+
+    const districtConcepts = await getDanteConcepts(objectGeometries, 'dante:gemarkung');
     const typeConcept = await fetchDanteConcept('nld_area_type', '1d59bd25-81ea-4e17-b786-7677c595ab1c');
-    const arealUnitConcept = getArealUnitConcept(object);
 
     for (let districtConcept of districtConcepts) {
-        const area = await createArea(object.item._pool, arealUnitConcept, districtConcept, typeConcept);
+        const area = await createArea(object.item._pool, districtConcept, typeConcept);
         linkArea(object, area);
-        await addTitle(object, area);
+        await addTitle(object, area, arealUnitConcepts);
     }
 
     return true;
+}
+
+async function getArealUnitConcepts(objectGeometries) {
+    const concepts = await getDanteConcepts(objectGeometries, 'dante:gebietseinheit');
+    return concepts.filter(concept => !concept.narrower?.length);
+}
+
+function setArealUnitConcepts(object, arealUnitConcepts) {
+    const nestedFieldKey = '_nested:' + object._objecttype + '__politische_zugehoerigkeit';
+    if (!object.item[nestedFieldKey]) {
+        object.item[nestedFieldKey] = [];
+    }
+    for (arealUnitConcept of arealUnitConcepts) {
+        object.item[nestedFieldKey].push({ lk_politische_zugehoerigkeit: getConceptEntry(arealUnitConcept) });
+    }
+}
+
+async function getObjectGeometries(object) {
+    const geometryIds = object.item.lk_nfis_geometrie?.geometry_ids;
+    if (!geometryIds?.length) return undefined;
+
+    const geoPluginConfiguration = await getGeoPluginConfiguration();
+    const wfsConfiguration = getWfsConfiguration('item', geoPluginConfiguration);
+    const authorizationString = getAuthorizationString(geoPluginConfiguration);
+
+    return getGeometriesForIds(geometryIds, wfsConfiguration, authorizationString);
+}
+
+async function getGeoPluginConfiguration() {
+    const url = 'http://fylr.localhost:8082/inspect/config';
+    const headers = { 'Accept': 'application/json' };
+
+    const configuration = await (await fetch(url, { headers })).json();
+    return configuration.BaseConfigList.find(section => section.Name === 'nfisGeoservices').Values;
+}
+
+function getWfsConfiguration(objectType, geoPluginConfiguration) {
+    const fieldConfiguration = geoPluginConfiguration.wfs_configuration.ValueTable
+        .find(element => element.object_type.ValueText === objectType)
+        ?.geometry_fields?.ValueTable.find(field => field.field_path?.ValueText === 'lk_nfis_geometrie');
+    
+    return {
+        wfsUrl: fieldConfiguration.display_wfs_url.ValueText,
+        featureType: fieldConfiguration.display_wfs_feature_type.ValueText,
+        geometryIdFieldName: geoPluginConfiguration.wfs_geometry_id_field_name.ValueText
+    };
+}
+
+function getAuthorizationString(geoPluginConfiguration) {
+    const username = geoPluginConfiguration.geoserver_read_username.ValueText;
+    const password = geoPluginConfiguration.geoserver_read_password.ValueText;
+
+    return 'Basic ' + btoa(username + ':' + password);
+}
+
+async function getDanteConcepts(geometries, typeName) {
+    const wfsData = await getWFSData(geometries, typeName);
+    const regex = typeName === 'dante:gemarkung'
+        ? /<dante:gemarkung([\s\S]*?)<\/dante:gemarkung>/g
+        : /<dante:gebietseinheit([\s\S]*?)<\/dante:gebietseinheit>/g;
+
+    const result = [];
+    const matches = wfsData.matchAll(regex);
+
+    for (let match of matches) {
+        const content = match[1];
+        const uuid = content.match(/<dante:uuid>\s*(.+)\s*<\/dante:uuid>/)?.[1];
+        const vocabulary = content.match(/<dante:dante_vocabulary>\s*(.+)\s*<\/dante:dante_vocabulary>/)?.[1];
+        const concept = await fetchDanteConcept(vocabulary, uuid);
+        if (concept) result.push(concept);
+    }
+
+    return result;
 }
 
 function linkArea(object, area) {
@@ -66,18 +140,33 @@ function linkArea(object, area) {
     });
 }
 
-async function addTitle(object, area) {
+async function addTitle(object, area, arealUnitConcepts) {
     if (!object.item['_nested:item__titel']) object.item['_nested:item__titel'] = [];
-    object.item['_nested:item__titel'].push({ titel: await getTitle(area) });
+    object.item['_nested:item__titel'].push({ titel: await getTitle(area, arealUnitConcepts) });
 }
 
-async function getTitle(area) {
-    const commune = await getCommuneLabel(area);
+async function getTitle(area, arealUnitConcepts) {
+    const commune = await getCommuneLabel(arealUnitConcepts);
     const findspotNumberEntry = area.flaeche['_nested:flaeche__fundstellennummer']?.[0];
     const districtLabel = findspotNumberEntry.lk_dante_gemarkung?.conceptName;
     const findspotNumber = addZeroes(findspotNumberEntry.nummer);
     
     return commune + ', Gmkg. ' + districtLabel + ' FStNr. ' + findspotNumber;
+}
+
+async function getCommuneLabel(arealUnitConcepts) {
+    const ancestorLabels = await getAncestorLabels(arealUnitConcepts[0]);
+    return ancestorLabels.length > 2 ? ancestorLabels[2] : undefined;
+}
+
+async function getAncestorLabels(danteConcept) {
+    const response = await fetch(
+        'https://api.dante.gbv.de/ancestors?uri=' + danteConcept.uri + '&properties=-',
+        { method: 'GET' }
+    );
+    const ancestors = await response.json();
+
+    return ancestors.map(ancestor => ancestor.prefLabel.de ?? ancestor.prefLabel.zxx).reverse();
 }
 
 function addZeroes(number) {
@@ -86,117 +175,7 @@ function addZeroes(number) {
         : ('0000' + number).slice(-5); 
 };
 
-async function getCommuneLabel(area) {
-    const arealUnitConcept = getArealUnitConcept(area);
-    const ancestorLabels = await getAncestorLabels(arealUnitConcept);
-    return ancestorLabels.length > 2 ? ancestorLabels[2] : undefined;
-}
-
-async function getAncestorLabels(danteConcept) {
-    const response = await fetch(
-        'https://api.dante.gbv.de/ancestors?uri=' + danteConcept.conceptURI + '&properties=-',
-        { method: 'GET' }
-    );
-    const ancestors = await response.json();
-
-    return ancestors.map(ancestor => ancestor.prefLabel.de ?? ancestor.prefLabel.zxx).reverse();
-}
-
-function getArealUnitUUID(object) {
-    const conceptURI = getArealUnitConcept(object)?.conceptURI;
-    return conceptURI.replace('http://uri.gbv.de/terminology/areal_unit_niedersachsen/', '')
-        .replace('http://uri.gbv.de/terminology/areal_unit_bremen', '');
-}
-
-function getArealUnitConcept(object) {
-    const nestedFieldKey = '_nested:' + object._objecttype + '__politische_zugehoerigkeit';
-    return object[object._objecttype][nestedFieldKey]?.[0]?.lk_politische_zugehoerigkeit;
-}
-
-async function getArealUnitPolygonData(danteUUID) {
-    const transactionUrl = getConfiguration().wfs_url + '?service=WFS&version=1.1.0&request=GetFeature';
-
-    const requestXml = '<?xml version="1.0" ?>'
-        + '<wfs:GetFeature '
-        + 'version="1.1.0" '
-        + 'service="WFS" '
-        + 'xmlns:ogc="http://www.opengis.net/ogc" '
-        + 'xmlns:wfs="http://www.opengis.net/wfs" '
-        + 'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
-        + 'xsi:schemaLocation="http://www.opengis.net/wfs">'
-        + '<wfs:Query typeName="dante:gebietseinheit">'
-        + '<ogc:Filter>'
-        + '<ogc:PropertyIsEqualTo>'
-        + '<ogc:PropertyName>dante:uuid</ogc:PropertyName>'
-        + '<ogc:Literal>' + danteUUID + '</ogc:Literal>'
-        + '</ogc:PropertyIsEqualTo>'
-        + '</ogc:Filter>'
-        + '</wfs:Query>'
-        + '</wfs:GetFeature>';
-
-    const response = await fetch(transactionUrl, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/xml'
-        },
-        body: requestXml
-    });
-
-    const xml = await response.text();
-    return xml.match(/<gml:Polygon[\s\S]*?<\/gml:Polygon>/g);
-}
-
-async function getDistrictConcepts(polygonData) {
-    const xml = await getDistrictXml(polygonData);
-        
-    const result = [];
-    const matches = xml.matchAll(/<dante:gemarkung([\s\S]*?)<\/dante:gemarkung>/g);
-
-    for (let match of matches) {
-        const content = match[1];
-        const uuid = content.match(/<dante:uuid>\s*(.+)\s*<\/dante:uuid>/)?.[1];
-        const vocabulary = content.match(/<dante:dante_vocabulary>\s*(.+)\s*<\/dante:dante_vocabulary>/)?.[1];
-        const concept = await fetchDanteConcept(vocabulary, uuid);
-        if (concept) result.push(concept);
-    }
-
-    return result;
-}
-
-async function getDistrictXml(polygonData) {
-    const transactionUrl = getConfiguration().wfs_url + '?service=WFS&version=1.1.0&request=GetFeature';
-
-    const requestXml ='<?xml version="1.0" ?>'
-        + '<wfs:GetFeature '
-        + 'version="1.1.0" '
-        + 'service="WFS" '
-        + 'xmlns:ogc="http://www.opengis.net/ogc" '
-        + 'xmlns:wfs="http://www.opengis.net/wfs" '
-        + 'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
-        + 'xmlns:gml="http://www.opengis.net/gml" '
-        + 'xsi:schemaLocation="http://www.opengis.net/wfs">'
-        + '<wfs:Query typeName="dante:gemarkung">'
-        + '<ogc:Filter>'
-        + '<ogc:Intersects>'
-        + '<ogc:PropertyName>geom</ogc:PropertyName>'
-        + polygonData
-        + '</ogc:Intersects>'
-        + '</ogc:Filter>'
-        + '</wfs:Query>'
-        + '</wfs:GetFeature>';
-
-    const response = await fetch(transactionUrl, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/xml'
-        },
-        body: requestXml
-    });
-
-    return response.text();
-}
-
-async function createArea(pool, arealUnitConcept, districtConcept, typeConcept) {
+async function createArea(pool, districtConcept, typeConcept) {
     const area = {
         _objecttype: 'flaeche',
         _mask: 'flaeche__all_fields',
@@ -205,9 +184,6 @@ async function createArea(pool, arealUnitConcept, districtConcept, typeConcept) 
             lk_dante_art: getConceptEntry(typeConcept),
             ['_nested:flaeche__fundstellennummer']: [{
                 lk_dante_gemarkung: getConceptEntry(districtConcept)
-            }],
-            ['_nested:flaeche__politische_zugehoerigkeit']: [{
-                lk_politische_zugehoerigkeit: arealUnitConcept
             }]
         }
     };
@@ -249,7 +225,7 @@ async function saveObject(object) {
 
 async function fetchDanteConcept(vocabulary, uuid) {
     const uri = 'http://uri.gbv.de/terminology/' + vocabulary + '/' + uuid;
-    const url = 'https://api.dante.gbv.de/data?uri=' + uri;
+    const url = 'https://api.dante.gbv.de/data?uri=' + uri + '&properties=+narrower';
     const response = await fetch(url, { method: 'GET' });
 
     if (!response.ok) throw response.status;
