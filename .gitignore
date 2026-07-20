@@ -4,3 +4,4 @@
 build
 build-info.json
 .DS_Store
+src/server/node_modules

@@ -34,7 +34,7 @@ async function processObject(object) {
     const objectGeometries = await getObjectGeometries(object);
     if (!objectGeometries?.length) throwErrorToFrontend('Bitte fügen Sie eine Geometrie hinzu, bevor Sie das Objekt speichern.');
 
-    const arealUnitConcepts = await getArealUnitConcepts(objectGeometries);
+    const arealUnitConcepts = await getDanteConcepts(objectGeometries, 'dante:gebietseinheit');
     setArealUnitConcepts(object, arealUnitConcepts);
 
     const districtConcepts = await getDanteConcepts(objectGeometries, 'dante:gemarkung');
@@ -49,17 +49,12 @@ async function processObject(object) {
     return true;
 }
 
-async function getArealUnitConcepts(objectGeometries) {
-    const concepts = await getDanteConcepts(objectGeometries, 'dante:gebietseinheit');
-    return concepts.filter(concept => !concept.narrower?.length);
-}
-
 function setArealUnitConcepts(object, arealUnitConcepts) {
     const nestedFieldKey = '_nested:' + object._objecttype + '__politische_zugehoerigkeit';
     if (!object.item[nestedFieldKey]) {
         object.item[nestedFieldKey] = [];
     }
-    for (arealUnitConcept of arealUnitConcepts) {
+    for (let arealUnitConcept of arealUnitConcepts) {
         object.item[nestedFieldKey].push({ lk_politische_zugehoerigkeit: getConceptEntry(arealUnitConcept) });
     }
 }
@@ -72,7 +67,30 @@ async function getObjectGeometries(object) {
     const wfsConfiguration = getWfsConfiguration('item', geoPluginConfiguration);
     const authorizationString = getAuthorizationString(geoPluginConfiguration);
 
-    return getGeometriesForIds(geometryIds, wfsConfiguration, authorizationString);
+    const result = [];
+    for (let geometryId of geometryIds) {
+        const filterXml = getGeometryIdFilterXml(geometryId, wfsConfiguration.geometryIdFieldName);
+        const xmlData = await fetchWFSData(
+            wfsConfiguration.wfsUrl,
+            getWFSRequestXml(wfsConfiguration.featureType, filterXml, 'xml'),
+            'xml',
+            authorizationString
+        );
+        const geoJsonData = await fetchWFSData(
+            wfsConfiguration.wfsUrl,
+            getWFSRequestXml(wfsConfiguration.featureType, filterXml, 'geojson'),
+            'geojson',
+            authorizationString
+        );
+        const entry = {
+            geometryId,
+            xml: getGeometriesFromXml(xmlData)?.[0],
+            geoJson: geoJsonData.features[0]
+        };
+        if (entry.xml && entry.geoJson) result.push(entry);
+    }
+
+    return result;
 }
 
 async function getGeoPluginConfiguration() {
@@ -103,23 +121,43 @@ function getAuthorizationString(geoPluginConfiguration) {
 }
 
 async function getDanteConcepts(geometries, typeName) {
-    const wfsData = await getWFSData(geometries, typeName);
+    const filterXml = getIntersectsFilterXml(geometries.map(geometry => geometry.xml), 'geom');
+
+    const xmlData = await fetchWFSData(
+        getConfiguration().wfs_url,
+        getWFSRequestXml(typeName, filterXml, 'xml'),
+        'xml'
+    );
+    const geoJsonData = await fetchWFSData(
+        getConfiguration().wfs_url,
+        getWFSRequestXml(typeName, filterXml, 'geojson'),
+        'geojson'
+    );
+
     const regex = typeName === 'dante:gemarkung'
         ? /<dante:gemarkung([\s\S]*?)<\/dante:gemarkung>/g
         : /<dante:gebietseinheit([\s\S]*?)<\/dante:gebietseinheit>/g;
 
     const result = [];
-    const matches = wfsData.matchAll(regex);
+    const matches = xmlData.matchAll(regex);
 
     for (let match of matches) {
         const content = match[1];
         const uuid = content.match(/<dante:uuid>\s*(.+)\s*<\/dante:uuid>/)?.[1];
         const vocabulary = content.match(/<dante:dante_vocabulary>\s*(.+)\s*<\/dante:dante_vocabulary>/)?.[1];
         const concept = await fetchDanteConcept(vocabulary, uuid);
-        if (concept) result.push(concept);
+        if (concept.narrower?.length) continue;
+    
+        const feature = geoJsonData.features.find(feature => {
+            return feature.properties.uuid === uuid && feature.properties.dante_vocabulary === vocabulary;
+        });
+        const coverage = computeCoverage(geometries.map(geometry => geometry.geoJson), feature);
+        if (coverage > 5) result.push({ concept, coverage });
     }
 
-    return result;
+    result.sort((concept1, concept2) => concept2.coverage - concept1.coverage);
+
+    return result.slice(0, 3).map(entry => entry.concept);
 }
 
 function linkArea(object, area) {

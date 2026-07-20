@@ -8,7 +8,9 @@ build: clean buildinfojson
 	mkdir -p build/$(PLUGIN_NAME)/l10n
 
 	cp src/server/createFindspots.js build/$(PLUGIN_NAME)/server/createFindspots.js
-	cat src/server/wfsXml.js >> build/$(PLUGIN_NAME)/server/createFindspots.js
+	cat src/server/wfs.js >> build/$(PLUGIN_NAME)/server/createFindspots.js
+	cat src/server/computeCoverage.js >> build/$(PLUGIN_NAME)/server/createFindspots.js
+	cp -r src/server/node_modules build/$(PLUGIN_NAME)/server/node_modules
 	cp l10n/$(PLUGIN_NAME).csv build/$(PLUGIN_NAME)/l10n/$(PLUGIN_NAME).csv
 	cp manifest.master.yml build/$(PLUGIN_NAME)/manifest.yml
 	cp build-info.json build/$(PLUGIN_NAME)/build-info.json

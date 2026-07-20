@@ -1,0 +1,14 @@
+{
+  "name": "nfis-server-plugin",
+  "version": "1.0.0",
+  "description": "",
+  "main": "computeCoverage.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@turf/turf": "^7.3.5"
+  }
+}
