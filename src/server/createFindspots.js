@@ -32,7 +32,13 @@ async function processObject(object) {
     if (object._objecttype !== 'item' || object._uuid) return false;
 
     const objectGeometries = await getObjectGeometries(object);
-    if (!objectGeometries?.length) throwErrorToFrontend('Bitte fügen Sie eine Geometrie hinzu, bevor Sie das Objekt speichern.');
+    if (!objectGeometries?.length) {
+        if (isInArchaeologyPool(object) && !hasLinkedAreas(object)) {
+            throwErrorToFrontend('Bitte fügen Sie eine Geometrie hinzu, bevor Sie das Objekt speichern.');
+        } else {
+            return false;
+        }
+    }
 
     const arealUnitConcepts = await getDanteConcepts(objectGeometries, 'dante:gebietseinheit');
     setArealUnitConcepts(object, arealUnitConcepts);
@@ -47,6 +53,12 @@ async function processObject(object) {
     }
 
     return true;
+}
+
+function isInArchaeologyPool(object) {
+    if (!object.item._pool) return false;
+
+    return object.item._pool._path.some(entry => entry.pool.name?.['de-DE'] === 'Archäologie');
 }
 
 function setArealUnitConcepts(object, arealUnitConcepts) {
@@ -178,6 +190,10 @@ function linkArea(object, area) {
     });
 }
 
+function hasLinkedAreas(object) {
+    return object.item['_reverse_nested:flaeche__objekt:lk_objekt']?.length > 0;
+}
+
 async function addTitle(object, area, arealUnitConcepts) {
     if (!object.item['_nested:item__titel']) object.item['_nested:item__titel'] = [];
     object.item['_nested:item__titel'].push({ titel: await getTitle(area, arealUnitConcepts) });
@@ -275,7 +291,7 @@ function getConfiguration() {
     return info.config.plugin.nfis.config.create_findspots;
 }
 
-function throwErrorToFrontend(error, description, realm) {
+function throwErrorToFrontend(error, realm) {
     console.log(
         JSON.stringify({
             error: {
@@ -283,8 +299,7 @@ function throwErrorToFrontend(error, description, realm) {
                 statuscode: 400,
                 realm: realm ?? 'api',
                 error,
-                parameters: {},
-                description
+                parameters: {}
             }
         })
     );
