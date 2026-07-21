@@ -1,7 +1,10 @@
 PLUGIN_NAME = nfis
 ZIP_NAME = "NFIS.zip"
 
-all: build zip
+all: install build zip
+
+install:
+	cd src/server && npm install
 
 build: clean buildinfojson
 	mkdir -p build/$(PLUGIN_NAME)/server/extension
