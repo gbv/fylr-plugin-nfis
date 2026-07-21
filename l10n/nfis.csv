@@ -1,3 +1,4 @@
 key,de-DE,en-US
 server.config.name.system.nfis,NFIS,NFIS
+server.config.name.system.create_findspots,Automatische Erzeugung von Fundstellen,Automatic creation of findspots
 server.config.parameter.system.create_findspots.wfs_url.label,WFS-URL,WFS URL
