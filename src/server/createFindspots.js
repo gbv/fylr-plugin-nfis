@@ -31,7 +31,8 @@ process.stdin.on('end', async () => {
 async function processObject(object) {
     if (object._objecttype !== 'item' || object._uuid) return false;
 
-    const objectGeometries = await getObjectGeometries(object);
+    const objectGeometryIds = getGeometryIds(object);
+    const objectGeometries = await getObjectGeometries(objectGeometryIds);
     if (!objectGeometries?.length) {
         if (isInArchaeologyPool(object) && !hasLinkedAreas(object)) {
             throwErrorToFrontend('Bitte fügen Sie eine Geometrie hinzu, bevor Sie das Objekt speichern.');
@@ -39,6 +40,8 @@ async function processObject(object) {
             return false;
         }
     }
+
+    if (!(await isUniqueGeometry(objectGeometryIds))) return false;
 
     const arealUnitConcepts = await getDanteConcepts(objectGeometries, 'dante:gebietseinheit');
     setArealUnitConcepts(object, arealUnitConcepts);
@@ -71,8 +74,11 @@ function setArealUnitConcepts(object, arealUnitConcepts) {
     }
 }
 
-async function getObjectGeometries(object) {
-    const geometryIds = object.item.lk_nfis_geometrie?.geometry_ids;
+function getGeometryIds(object) {
+    return object.item.lk_nfis_geometrie?.geometry_ids;
+}
+
+async function getObjectGeometries(geometryIds) {   
     if (!geometryIds?.length) return undefined;
 
     const geoPluginConfiguration = await getGeoPluginConfiguration();
@@ -130,6 +136,28 @@ function getAuthorizationString(geoPluginConfiguration) {
     const password = geoPluginConfiguration.geoserver_read_password.ValueText;
 
     return 'Basic ' + btoa(username + ':' + password);
+}
+
+async function isUniqueGeometry(geometryIds) {
+    const url = info.api_url + '/api/v1/plugin/extension/custom-data-type-nfis-geometry/isUniqueGeometry?access_token=' + info.api_user_access_token;
+    
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ geometryIds })
+        });
+        if (!response.ok) throw JSON.stringify(await response.json());
+
+        const json = await response.json();
+        if (json.error) throw json.error;
+
+        return json.result;
+    } catch (err) {
+        throwErrorToFrontend('Bei der Prüfung auf mehrfach verknüpfte Geometrien ist ein Fehler aufgetreten: ' + err.toString());
+    }    
 }
 
 async function getDanteConcepts(geometries, typeName) {
