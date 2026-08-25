@@ -3,7 +3,7 @@ async function fetchWFSData(wfsUrl, requestXml, format, authorizationString) {
         'Content-Type': 'application/xml'
     };
 
-    if (authorizationString) headers.authorizationString = authorizationString;
+    if (authorizationString) headers.Authorization = authorizationString;
 
     const response = await fetch(wfsUrl, {
         method: 'POST',
