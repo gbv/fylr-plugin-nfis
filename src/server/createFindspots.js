@@ -52,7 +52,7 @@ async function processObject(object) {
     for (let districtConcept of districtConcepts) {
         const area = await createArea(object.item._pool, districtConcept, typeConcept);
         linkArea(object, area);
-        await addTitle(object, area, arealUnitConcepts);
+        await addTitle(object, area);
     }
 
     return true;
@@ -222,28 +222,42 @@ function hasLinkedAreas(object) {
     return object.item['_reverse_nested:flaeche__objekt:lk_objekt']?.length > 0;
 }
 
-async function addTitle(object, area, arealUnitConcepts) {
+async function addTitle(object, area) {
     if (!object.item['_nested:item__titel']) object.item['_nested:item__titel'] = [];
-    object.item['_nested:item__titel'].push({ titel: await getTitle(area, arealUnitConcepts) });
+    object.item['_nested:item__titel'].push({ titel: await getTitle(area) });
 }
 
-async function getTitle(area, arealUnitConcepts) {
-    const commune = await getCommuneLabel(arealUnitConcepts);
+async function getTitle(area) {
     const findspotNumberEntry = area.flaeche['_nested:flaeche__fundstellennummer']?.[0];
-    const districtLabel = findspotNumberEntry.lk_dante_gemarkung?.conceptName;
+    const districtConcept = findspotNumberEntry.lk_dante_gemarkung;
+    const districtLabel = getDistrictLabel(districtConcept?.conceptName);
+    const communeLabel = await getCommuneLabel(districtConcept?.conceptURI);
     const findspotNumber = addZeroes(findspotNumberEntry.nummer);
     
-    return commune + ', Gmkg. ' + districtLabel + ' FStNr. ' + findspotNumber;
+    return communeLabel + ', Gmkg. ' + districtLabel + ' FStNr. ' + findspotNumber;
 }
 
-async function getCommuneLabel(arealUnitConcepts) {
-    const ancestorLabels = await getAncestorLabels(arealUnitConcepts[0]);
-    return ancestorLabels.length > 2 ? ancestorLabels[2] : undefined;
+function getDistrictLabel(conceptName) {
+    return conceptName.includes(', Gde. ')
+        ? conceptName.slice(0, conceptName.indexOf(', Gde. '))
+        : conceptName.includes(', Stadt ')
+            ? conceptName.slice(0, conceptName.indexOf(', Stadt '))
+            : conceptName;
 }
 
-async function getAncestorLabels(danteConcept) {
+async function getCommuneLabel(conceptUri) {
+    const ancestorLabels = await getAncestorLabels(conceptUri);
+    if (!ancestorLabels.length > 2) return undefined;
+
+    const communeLabel = ancestorLabels[2];
+    return communeLabel.includes(', Lkr. ')
+        ? communeLabel.slice(0, communeLabel.indexOf(', Lkr. '))
+        : communeLabel;
+}
+
+async function getAncestorLabels(conceptUri) {
     const response = await fetch(
-        'https://api.dante.gbv.de/ancestors?uri=' + danteConcept.uri + '&properties=-',
+        'https://api.dante.gbv.de/ancestors?uri=' + conceptUri + '&properties=-',
         { method: 'GET' }
     );
     const ancestors = await response.json();
