@@ -29,12 +29,12 @@ process.stdin.on('end', async () => {
 });
 
 async function processObject(object) {
-    if (object._objecttype !== 'item' || object._uuid) return false;
+    if (object._objecttype !== 'item' || object._uuid || !isInArchaeologyPool(object)) return false;
 
     const objectGeometryIds = getGeometryIds(object);
     const objectGeometries = await getObjectGeometries(objectGeometryIds);
     if (!objectGeometries?.length) {
-        if (isInArchaeologyPool(object) && !hasLinkedAreas(object)) {
+        if (!hasLinkedAreas(object)) {
             throwErrorToFrontend('Bitte fügen Sie eine Geometrie hinzu, bevor Sie das Objekt speichern.');
         } else {
             return false;
