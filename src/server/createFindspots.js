@@ -230,19 +230,27 @@ async function addTitle(object, area) {
 async function getTitle(area) {
     const findspotNumberEntry = area.flaeche['_nested:flaeche__fundstellennummer']?.[0];
     const districtConcept = findspotNumberEntry.lk_dante_gemarkung;
-    const districtLabel = getDistrictLabel(districtConcept?.conceptName);
+    const districtLabel = cleanLabel(districtConcept?.conceptName);
     const communeLabel = await getCommuneLabel(districtConcept?.conceptURI);
     const findspotNumber = addZeroes(findspotNumberEntry.nummer);
     
     return communeLabel + ', Gmkg. ' + districtLabel + ' FStNr. ' + findspotNumber;
 }
 
-function getDistrictLabel(conceptName) {
-    return conceptName.includes(', Gde. ')
-        ? conceptName.slice(0, conceptName.indexOf(', Gde. '))
-        : conceptName.includes(', Stadt ')
-            ? conceptName.slice(0, conceptName.indexOf(', Stadt '))
-            : conceptName;
+function cleanLabel(conceptName) {
+    conceptName = removeFromLabel(conceptName, ', Gde. ');
+    conceptName = removeFromLabel(conceptName, ', Gfg. ');
+    conceptName = removeFromLabel(conceptName, ', Lkr. ');
+    conceptName = removeFromLabel(conceptName, ', Stadt ');
+    conceptName = removeFromLabel(conceptName, ', Zugehörigkeit ungeklärt');
+
+    return conceptName;
+}
+
+function removeFromLabel(text, removeFrom) {
+    return text.includes(removeFrom)
+        ? text.slice(0, text.indexOf(removeFrom))
+        : text;
 }
 
 async function getCommuneLabel(conceptUri) {
@@ -250,9 +258,7 @@ async function getCommuneLabel(conceptUri) {
     if (!ancestorLabels.length > 2) return undefined;
 
     const communeLabel = ancestorLabels[2];
-    return communeLabel.includes(', Lkr. ')
-        ? communeLabel.slice(0, communeLabel.indexOf(', Lkr. '))
-        : communeLabel;
+    return cleanLabel(communeLabel);
 }
 
 async function getAncestorLabels(conceptUri) {
