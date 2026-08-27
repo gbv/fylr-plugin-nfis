@@ -231,7 +231,10 @@ async function getTitle(area) {
     const findspotNumberEntry = area.flaeche['_nested:flaeche__fundstellennummer']?.[0];
     const districtConcept = findspotNumberEntry.lk_dante_gemarkung;
     const districtLabel = cleanLabel(districtConcept?.conceptName);
+
     const communeLabel = await getCommuneLabel(districtConcept?.conceptURI);
+    if (!communeLabel) throwErrorToFrontend('Die Gemeinde konnte nicht ermittelt werden. Bitte überprüfen Sie die verknüpfte Geometrie.');
+
     const findspotNumber = addZeroes(findspotNumberEntry.nummer);
     
     return communeLabel + ', Gmkg. ' + districtLabel + ' FStNr. ' + findspotNumber;
@@ -255,9 +258,11 @@ function removeFromLabel(text, removeFrom) {
 
 async function getCommuneLabel(conceptUri) {
     const ancestorLabels = await getAncestorLabels(conceptUri);
-    if (!ancestorLabels.length > 2) return undefined;
+    const index = ancestorLabels[0] === 'Niedersachsen' ? 2 : 1;
 
-    const communeLabel = ancestorLabels[2];
+    if (ancestorLabels.length < index + 1) return undefined;
+
+    const communeLabel = ancestorLabels[index];
     return cleanLabel(communeLabel);
 }
 
