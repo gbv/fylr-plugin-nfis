@@ -245,6 +245,7 @@ function cleanLabel(conceptName) {
     conceptName = removeFromLabel(conceptName, ', Gfg. ');
     conceptName = removeFromLabel(conceptName, ', Lkr. ');
     conceptName = removeFromLabel(conceptName, ', Stadt ');
+    conceptName = removeFromLabel(conceptName, ', Stadtgemeinde ');
     conceptName = removeFromLabel(conceptName, ', Zugehörigkeit ungeklärt');
 
     return conceptName;
