@@ -232,6 +232,8 @@ async function getTitle(area) {
     const districtConcept = findspotNumberEntry.lk_dante_gemarkung;
     const districtLabel = cleanLabel(districtConcept?.conceptName);
 
+    if (districtLabel === 'AWZ (Ausschließliche Wirtschaftszone)') return districtLabel;
+
     const communeLabel = await getCommuneLabel(districtConcept?.conceptURI);
     if (!communeLabel) throwErrorToFrontend('Die Gemeinde konnte nicht ermittelt werden. Bitte überprüfen Sie die verknüpfte Geometrie.');
 
