@@ -243,12 +243,11 @@ async function getTitle(area) {
 }
 
 function cleanLabel(conceptName) {
-    conceptName = removeFromLabel(conceptName, ', Gde. ');
-    conceptName = removeFromLabel(conceptName, ', Gfg. ');
-    conceptName = removeFromLabel(conceptName, ', Lkr. ');
-    conceptName = removeFromLabel(conceptName, ', Stadt ');
-    conceptName = removeFromLabel(conceptName, ', Stadtgemeinde ');
-    conceptName = removeFromLabel(conceptName, ', Zugehörigkeit ungeklärt');
+    const terms = ['Gde.', 'Gfg.', 'Lkr.', 'Flecken', 'Stadt', 'Stadtgemeinde', 'Zugehörigkeit'];
+
+    for (let term of terms) {
+        conceptName = removeFromLabel(conceptName, ', ' + term + ' ');
+    }
 
     return conceptName;
 }
