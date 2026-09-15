@@ -1,0 +1,12 @@
+server:
+  install:
+  - l10n/nfis.csv
+  bundles:
+    - out: server/createFindspots.js
+      sources:
+      - src/server/createFindspots.js
+      - src/server/computeCoverage.js
+      - src/server/wfs.js
+
+zip_aliases:
+- NFIS.zip
