@@ -55,6 +55,8 @@ async function processObject(object) {
         await addTitle(object, area);
     }
 
+    await createEvents(object);
+
     return true;
 }
 
@@ -299,6 +301,79 @@ async function createArea(pool, districtConcept, typeConcept) {
 
     const savedArea = await saveObject(area);
     return fetchObject('flaeche', 'flaeche__all_fields', savedArea.flaeche._id);
+}
+
+async function createEvents(object) {
+    const yesValueId = await fetchYesValueId();
+
+    if (!object.item['_nested:item__event']) object.item['_nested:item__event'] = [];
+
+    object.item['_nested:item__event'].push(createBeginningOfExistenceEvent(yesValueId));
+    object.item['_nested:item__event'].push(createDesignationEvent(yesValueId));
+}
+
+async function fetchYesValueId() {
+    const url = info.api_url + '/api/v1/search?access_token=' + info.api_user_access_token;
+    const searchRequest = {
+        search: [{
+            type: 'match',
+            bool: 'should',
+            fields: ['ja_nein_objekttyp.name'],
+            string: 'ja'
+        }]
+    };
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(searchRequest)
+    });
+    if (!response.ok) throw JSON.stringify(await response.json());
+
+    const result = await response.json();
+    return result.objects?.[0]?.ja_nein_objekttyp._id;
+}
+
+function createBeginningOfExistenceEvent(yesValueId) {
+    return {
+        lk_eventtyp: {
+            conceptURI: 'http://uri.gbv.de/terminology/object_related_event/4d52f1c2-2d21-44cb-8097-63d5ac7c1d40',
+            conceptName: 'Entstehung'
+        },
+        lk_zeitstellung: {
+            'conceptURI': 'http://uri.gbv.de/terminology/nld_chronology/72f55ebc-a286-4b08-bccc-c73fffd3e728',
+            'conceptName': 'undatiert'
+        },
+        lk_veroeffentlichen: {
+            _objecttype: 'ja_nein_objekttyp',
+            _mask: 'ja_nein_objekttyp__all_fields',
+            ja_nein_objekttyp: {
+                _id: yesValueId
+            }
+        }
+    };
+}
+
+function createDesignationEvent(yesValueId) {
+    return {
+        lk_eventtyp: {
+            conceptURI: 'http://uri.gbv.de/terminology/object_related_event/978eb685-12d0-45d2-ac64-77bc64b7de0b',
+            conceptName: 'Ausweisung'
+        },
+        lk_status: {
+            conceptURI: 'http://uri.gbv.de/terminology/nld_designation_status/7eb175f5-32cd-4849-a2dd-1d46e039fdc4',
+            conceptName: 'Archäologische Fundstelle'
+        },
+        lk_veroeffentlichen: {
+            _objecttype: 'ja_nein_objekttyp',
+            _mask: 'ja_nein_objekttyp__all_fields',
+            ja_nein_objekttyp: {
+                _id: yesValueId
+            }
+        }
+    };
 }
 
 function getConceptEntry(danteConcept) {
