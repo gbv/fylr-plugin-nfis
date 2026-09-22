@@ -29,7 +29,7 @@ process.stdin.on('end', async () => {
 });
 
 async function processObject(object) {
-    if (object._objecttype !== 'item' || object._uuid || !isInArchaeologyPool(object)) return false;
+    if (object._objecttype !== 'item' || object._uuid || hasTitle(object) || !isInArchaeologyPool(object)) return false;
 
     const objectGeometryIds = getGeometryIds(object);
     const objectGeometries = await getObjectGeometries(objectGeometryIds);
@@ -58,6 +58,10 @@ async function processObject(object) {
     await createEvents(object);
 
     return true;
+}
+
+function hasTitle(object) {
+    return object.item['_nested:item__titel']?.some(entry => entry.titel?.length);
 }
 
 function isInArchaeologyPool(object) {
